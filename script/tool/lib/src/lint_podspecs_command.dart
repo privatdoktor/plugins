@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,7 +9,9 @@ import 'package:file/file.dart';
 import 'package:path/path.dart' as p;
 import 'package:platform/platform.dart';
 
-import 'common.dart';
+import 'common/core.dart';
+import 'common/plugin_command.dart';
+import 'common/process_runner.dart';
 
 /// Lint the CocoaPod podspecs and run unit tests.
 ///
@@ -18,14 +19,13 @@ import 'common.dart';
 class LintPodspecsCommand extends PluginCommand {
   /// Creates an instance of the linter command.
   LintPodspecsCommand(
-    Directory packagesDir,
-    FileSystem fileSystem, {
+    Directory packagesDir, {
     ProcessRunner processRunner = const ProcessRunner(),
     Platform platform = const LocalPlatform(),
     Print print = print,
   })  : _platform = platform,
         _print = print,
-        super(packagesDir, fileSystem, processRunner: processRunner) {
+        super(packagesDir, processRunner: processRunner) {
     argParser.addMultiOption('skip',
         help:
             'Skip all linting for podspecs with this basename (example: federated plugins with placeholder podspecs)',
@@ -58,8 +58,13 @@ class LintPodspecsCommand extends PluginCommand {
       return;
     }
 
-    await processRunner.runAndExitOnError('which', <String>['pod'],
-        workingDir: packagesDir);
+    await processRunner.run(
+      'which',
+      <String>['pod'],
+      workingDir: packagesDir,
+      exitOnError: true,
+      logOnError: true,
+    );
 
     _print('Starting podspec lint test');
 
@@ -84,7 +89,7 @@ class LintPodspecsCommand extends PluginCommand {
     final List<File> podspecs = await getFiles().where((File entity) {
       final String filePath = entity.path;
       return p.extension(filePath) == '.podspec' &&
-          !(argResults['skip'] as List<String>)
+          !getStringListArg('skip')
               .contains(p.basenameWithoutExtension(filePath));
     }).toList();
 
@@ -116,8 +121,8 @@ class LintPodspecsCommand extends PluginCommand {
   }
 
   Future<ProcessResult> _runPodLint(String podspecPath,
-      {bool libraryLint}) async {
-    final bool allowWarnings = (argResults['ignore-warnings'] as List<String>)
+      {required bool libraryLint}) async {
+    final bool allowWarnings = (getStringListArg('ignore-warnings'))
         .contains(p.basenameWithoutExtension(podspecPath));
     final List<String> arguments = <String>[
       'lib',
@@ -125,6 +130,7 @@ class LintPodspecsCommand extends PluginCommand {
       podspecPath,
       '--configuration=Debug', // Release targets unsupported arm64 simulators. Use Debug to only build against targeted x86_64 simulator devices.
       '--skip-tests',
+      '--use-modular-headers', // Flutter sets use_modular_headers! in its templates.
       if (allowWarnings) '--allow-warnings',
       if (libraryLint) '--use-libraries'
     ];
